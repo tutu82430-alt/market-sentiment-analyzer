@@ -220,12 +220,10 @@ def plot_and_save(df: pd.DataFrame, sma_col: str, output_path: str) -> None:
     signals   = df["Bullish_Signal"]
     dates     = df.index
 
-    # Upper panel -- Price & SMA
     ax1.plot(dates, close, color="#58a6ff", linewidth=1.5, label="Nifty 50 Close", zorder=2)
     ax1.plot(dates, sma, color="#f0883e", linewidth=1.5, linestyle="--",
              label=f"{sma_col} (trend)", zorder=2)
 
-    # Bullish Signal dots
     signal_dates  = dates[signals]
     signal_prices = close[signals]
     ax1.scatter(
@@ -234,7 +232,6 @@ def plot_and_save(df: pd.DataFrame, sma_col: str, output_path: str) -> None:
         label="Bullish Signal", edgecolors="#ffffff", linewidths=0.5,
     )
 
-    # Shaded area
     ax1.fill_between(dates, close, sma,
                      where=(close > sma), alpha=0.08, color="#3fb950")
     ax1.fill_between(dates, close, sma,
@@ -248,7 +245,6 @@ def plot_and_save(df: pd.DataFrame, sma_col: str, output_path: str) -> None:
     ax1.legend(facecolor="#21262d", edgecolor="#30363d",
                labelcolor="#c9d1d9", fontsize=9, loc="upper left")
 
-    # Lower panel -- Sentiment
     colors = np.where(sentiment > 0, "#3fb950", "#f85149")
     ax2.bar(dates, sentiment, color=colors, width=1, alpha=0.85, zorder=2)
     ax2.axhline(SENTIMENT_THRESH, color="#f0883e", linewidth=1,
@@ -259,13 +255,11 @@ def plot_and_save(df: pd.DataFrame, sma_col: str, output_path: str) -> None:
     ax2.legend(facecolor="#21262d", edgecolor="#30363d",
                labelcolor="#c9d1d9", fontsize=8, loc="upper left")
 
-    # X-axis
     ax2.xaxis.set_major_formatter(mdates.DateFormatter("%d %b '%y"))
     ax2.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO, interval=2))
     plt.setp(ax2.xaxis.get_majorticklabels(), rotation=30, ha="right",
              color="#c9d1d9", fontsize=8)
 
-    # Annotation
     n_signals = int(signals.sum())
     ax1.annotate(
         f"  {n_signals} Bullish Signal{'s' if n_signals != 1 else ''} detected",
@@ -303,7 +297,6 @@ def main() -> None:
 
     df = generate_signals(df, sma_col, "Sentiment_Score", SENTIMENT_THRESH)
 
-    # Preview
     print("\n--- Sample Output (last 10 rows) ---")
     preview_cols = ["Close", sma_col, "Sentiment_Score", "Bullish_Signal"]
     with pd.option_context("display.float_format", "{:.2f}".format,
@@ -311,7 +304,6 @@ def main() -> None:
                            "display.width", 120):
         print(df[preview_cols].tail(10).to_string())
 
-    # Save CSV
     os.makedirs("data", exist_ok=True)
     csv_path = os.path.join("data", "analysis_snapshot.csv")
     df.to_csv(csv_path)
@@ -319,7 +311,6 @@ def main() -> None:
 
     plot_and_save(df, sma_col, CHART_FILE)
 
-    # Print bullish signal days
     bullish_days = df[df["Bullish_Signal"]].copy()
     print("\n--- Bullish Signal Days ---")
     if bullish_days.empty:
