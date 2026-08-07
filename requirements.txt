@@ -12,5 +12,8 @@ numpy>=1.24.0
 # NLP Sentiment
 vaderSentiment>=3.3.2
 
+# Live News RSS
+feedparser>=6.0.10
+
 # Utilities
 requests>=2.31.0
