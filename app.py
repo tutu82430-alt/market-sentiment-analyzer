@@ -16,10 +16,24 @@ import feedparser
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 import yfinance as yf
 from plotly.subplots import make_subplots
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+# ── Yahoo Finance rate-limit bypass ───────────────────────────────
+# Streamlit Cloud's shared IPs are frequently blocked by Yahoo Finance.
+# Passing a session with a real Chrome User-Agent makes requests appear
+# to originate from a browser, avoiding 429 / 403 errors.
+_YF_SESSION = requests.Session()
+_YF_SESSION.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/115.0.0.0 Safari/537.36"
+    )
+})
 
 # ──────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -208,14 +222,29 @@ Dual confirmation = fewer false positives.
 # ──────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)   # cache for 5 minutes
 def fetch_price_data(ticker: str, start: str, end: str) -> pd.DataFrame:
-    """Download OHLCV price data from Yahoo Finance."""
-    df = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=True)
+    """
+    Download OHLCV price data from Yahoo Finance.
+
+    Uses a browser-spoofing requests.Session (_YF_SESSION) to bypass the
+    rate-limiting that Yahoo Finance applies to cloud server IP ranges.
+    yf.Ticker accepts an optional `session` kwarg that is forwarded to every
+    underlying HTTP call, including history().
+    """
+    try:
+        t  = yf.Ticker(ticker, session=_YF_SESSION)
+        df = t.history(start=start, end=end, auto_adjust=True)
+    except Exception:
+        return pd.DataFrame()
+
     if df.empty:
         return pd.DataFrame()
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
-    df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
-    df.index = pd.to_datetime(df.index)
+
+    # yf.Ticker.history() returns Open/High/Low/Close/Volume — align to same schema
+    available = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]
+    df = df[available].copy()
+    df.index = pd.to_datetime(df.index).tz_localize(None)  # strip timezone for clean Pandas ops
     return df.sort_index()
 
 
