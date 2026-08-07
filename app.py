@@ -554,6 +554,7 @@ with tab2:
     custom_ticker = st.text_input("Enter Stock Ticker (e.g., RELIANCE.NS, AAPL, TSLA, INFY.NS):", placeholder="e.g. AAPL")
     
     if st.button("Analyze Stock", type="primary", key="analyze_deep"):
+        custom_ticker = custom_ticker.strip().upper()
         if not custom_ticker:
             st.error("Please enter a stock ticker.")
         else:
@@ -561,11 +562,22 @@ with tab2:
                 end_dt_d   = datetime.today()
                 start_dt_d = end_dt_d - timedelta(days=180)
                 df_deep    = fetch_price_data(custom_ticker, start_dt_d.strftime("%Y-%m-%d"), end_dt_d.strftime("%Y-%m-%d"))
+                
+                appended_ns = False
+                if df_deep.empty and "." not in custom_ticker:
+                    fallback_ticker = f"{custom_ticker}.NS"
+                    df_deep = fetch_price_data(fallback_ticker, start_dt_d.strftime("%Y-%m-%d"), end_dt_d.strftime("%Y-%m-%d"))
+                    if not df_deep.empty:
+                        custom_ticker = fallback_ticker
+                        appended_ns = True
+                        
                 info       = fetch_stock_info(custom_ticker)
                 
             if df_deep.empty:
                 st.error(f"⚠️ Could not fetch data for **{custom_ticker}**. Please check the ticker symbol (e.g., Indian stocks usually end in `.NS` or `.BO`).")
             else:
+                if appended_ns:
+                    st.info(f"💡 Tip: Auto-detected Indian stock! Querying as `{custom_ticker}`.")
                 df_deep = add_technicals(df_deep)
                 
                 latest_d     = float(df_deep["Close"].squeeze().iloc[-1])
@@ -690,7 +702,6 @@ with tab3:
                 with st.spinner("Gemini is analyzing..."):
                     try:
                         genai.configure(api_key=gemini_api_key)
-                        model = genai.GenerativeModel('gemini-1.5-flash')
                         
                         prompt = f"""
                         You are a highly knowledgeable financial market expert and AI assistant.
@@ -698,7 +709,22 @@ with tab3:
                         
                         User Question: {user_q}
                         """
-                        response = model.generate_content(prompt)
+                        
+                        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-pro', 'gemini-pro']
+                        response = None
+                        last_error = None
+                        
+                        for m_name in models_to_try:
+                            try:
+                                model = genai.GenerativeModel(m_name)
+                                response = model.generate_content(prompt)
+                                break
+                            except Exception as e:
+                                last_error = e
+                                continue
+                                
+                        if response is None:
+                            raise Exception(f"All models failed. Last error: {last_error}")
                         
                         st.markdown("---")
                         st.markdown("#### ✨ Gemini's Response")
