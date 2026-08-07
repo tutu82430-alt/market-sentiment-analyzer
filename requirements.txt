@@ -17,3 +17,6 @@ feedparser>=6.0.10
 
 # ── HTTP Utilities ─────────────────────────────────────────
 requests>=2.31.0
+
+# ── AI Integration ───────────────────────────────────────────
+google-generativeai>=0.4.0
