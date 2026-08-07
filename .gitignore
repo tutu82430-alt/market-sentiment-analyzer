@@ -1,0 +1,36 @@
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+.env/
+*.egg-info/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Data folder (raw CSVs, not tracked in git)
+data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# Jupyter Notebooks (if any)
+.ipynb_checkpoints/
+
+# Logs
+*.log
