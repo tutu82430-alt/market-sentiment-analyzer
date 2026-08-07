@@ -15,6 +15,7 @@ import google.generativeai as genai
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import pytz
 import requests
 import streamlit as st
 import yfinance as yf
@@ -455,7 +456,8 @@ def build_chart(df: pd.DataFrame, sent_threshold: float, show_sentiment: bool = 
 # ──────────────────────────────────────────────────────────────────
 # MAIN APP EXECUTION
 # ──────────────────────────────────────────────────────────────────
-now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
+ist_tz = pytz.timezone("Asia/Kolkata")
+now_str = datetime.now(ist_tz).strftime("%d %b %Y, %I:%M %p IST")
 
 # Unified Header
 st.markdown('<div class="header-title">Market Sentinel</div>', unsafe_allow_html=True)
@@ -710,21 +712,12 @@ with tab3:
                         User Question: {user_q}
                         """
                         
-                        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-pro', 'gemini-pro']
-                        response = None
-                        last_error = None
+                        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                        if not available_models:
+                            raise Exception("No generative models available for this API key.")
                         
-                        for m_name in models_to_try:
-                            try:
-                                model = genai.GenerativeModel(m_name)
-                                response = model.generate_content(prompt)
-                                break
-                            except Exception as e:
-                                last_error = e
-                                continue
-                                
-                        if response is None:
-                            raise Exception(f"All models failed. Last error: {last_error}")
+                        model = genai.GenerativeModel(available_models[0])
+                        response = model.generate_content(prompt)
                         
                         st.markdown("---")
                         st.markdown("#### ✨ Gemini's Response")
