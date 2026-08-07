@@ -712,12 +712,21 @@ with tab3:
                         User Question: {user_q}
                         """
                         
-                        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                        if not available_models:
-                            raise Exception("No generative models available for this API key.")
+                        models_to_try = ["gemini-3.6-flash", "gemini-3.5-flash"]
+                        response = None
+                        last_error = None
                         
-                        model = genai.GenerativeModel(available_models[0])
-                        response = model.generate_content(prompt)
+                        for m_name in models_to_try:
+                            try:
+                                model = genai.GenerativeModel(m_name)
+                                response = model.generate_content(prompt)
+                                break
+                            except Exception as e:
+                                last_error = e
+                                continue
+                                
+                        if response is None:
+                            raise Exception(f"All Gemini models failed. Last error: {last_error}")
                         
                         st.markdown("---")
                         st.markdown("#### ✨ Gemini's Response")
