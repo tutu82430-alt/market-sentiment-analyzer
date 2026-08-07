@@ -5,6 +5,7 @@ Author  : Rohit  |  github.com/tutu82430-alt
 Stack   : Streamlit · Plotly · yfinance · VADER · feedparser
 """
 
+import os
 import re
 import time
 from datetime import datetime, timedelta
@@ -32,6 +33,14 @@ st.set_page_config(
 
 if "show_onboarding" not in st.session_state:
     st.session_state["show_onboarding"] = True
+
+# Get Gemini API Key securely
+try:
+    gemini_api_key = st.secrets.get("GEMINI_API_KEY", None)
+except Exception:
+    gemini_api_key = None
+if not gemini_api_key:
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", None)
 
 # ──────────────────────────────────────────────────────────────────
 # YAHOO FINANCE RATE-LIMIT BYPASS
@@ -212,10 +221,10 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     asset_label = st.selectbox(
-        "Asset",
+        "Market Overview Asset",
         options=list(ASSETS.keys()),
         index=list(ASSETS.keys()).index(DEFAULT_ASSET),
-        help="Choose an Indian index, blue-chip stock, or global instrument.",
+        help="Choose a global or Indian instrument for the main Market Overview tab.",
     )
     ticker  = ASSETS[asset_label]["ticker"]
     news_q  = ASSETS[asset_label]["news_q"]
@@ -232,15 +241,6 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.markdown("### 🧠 AI Configuration")
-    gemini_api_key = st.text_input(
-        "Gemini API Key", 
-        type="password", 
-        help="Get your free API key at aistudio.google.com to unlock AI Insights."
-    )
-
-    st.markdown("---")
-    
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
@@ -280,6 +280,15 @@ def fetch_price_data(ticker_symbol: str, start: str, end: str) -> pd.DataFrame:
     df        = df[cols].copy()
     df.index  = pd.to_datetime(df.index).tz_localize(None)
     return df.sort_index()
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_stock_info(ticker_symbol: str) -> dict:
+    try:
+        t = yf.Ticker(ticker_symbol, session=_YF_SESSION)
+        info = t.info
+        return info if info else {}
+    except Exception:
+        return {}
 
 
 def add_technicals(df: pd.DataFrame) -> pd.DataFrame:
@@ -349,7 +358,6 @@ def build_chart(df: pd.DataFrame, sent_threshold: float, show_sentiment: bool = 
     sma50 = df["SMA_50"].squeeze()
     rsi   = df["RSI"].squeeze()
     
-    # If not showing sentiment (like in custom search), adjust layout
     rows = 3 if show_sentiment else 2
     row_heights = [0.58, 0.21, 0.21] if show_sentiment else [0.7, 0.3]
     titles = ("", "RSI (14-period)", "News Sentiment Score") if show_sentiment else ("", "RSI (14-period)")
@@ -374,7 +382,7 @@ def build_chart(df: pd.DataFrame, sent_threshold: float, show_sentiment: bool = 
     fig.add_trace(go.Scatter(x=df.index, y=sma20, name="SMA 20", line=dict(color="#FFB300", width=1.6)), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=sma50, name="SMA 50", line=dict(color="#2962FF", width=1.4, dash="dot")), row=1, col=1)
 
-    # Buy Signals (only if column exists)
+    # Buy Signals
     if "Buy_Signal" in df.columns:
         buys  = df[df["Buy_Signal"]]
         if not buys.empty:
@@ -397,10 +405,10 @@ def build_chart(df: pd.DataFrame, sent_threshold: float, show_sentiment: bool = 
         x=df.index, y=rsi, line=dict(color="#29B6F6", width=1.5),
         fill="tozeroy", fillcolor="rgba(41,182,246,0.07)", name="RSI 14",
     ), row=2, col=1)
-    fig.add_hline(y=70, line_color="#FF3333", line_dash="dash", line_width=1, row=2, col=1) # Overbought (Red)
-    fig.add_hline(y=30, line_color="#00C853", line_dash="dash", line_width=1, row=2, col=1) # Oversold (Green)
+    fig.add_hline(y=70, line_color="#FF3333", line_dash="dash", line_width=1, row=2, col=1)
+    fig.add_hline(y=30, line_color="#00C853", line_dash="dash", line_width=1, row=2, col=1)
 
-    # Sentiment Bars (if enabled)
+    # Sentiment
     if show_sentiment and "Sentiment_Score" in df.columns:
         sent  = df["Sentiment_Score"]
         bar_colors = ["#00C853" if s > 0.05 else ("#FF3333" if s < -0.05 else "#FFB300") for s in sent]
@@ -463,7 +471,7 @@ if st.session_state["show_onboarding"]:
             st.session_state["show_onboarding"] = False
             st.rerun()
 
-# ── FETCH MAIN DATA GLOBALLY SO TABS 1 & 3 CAN USE IT ──
+# ── FETCH MAIN DATA GLOBALLY ──
 with st.spinner("Fetching live market data and news for Dashboard..."):
     end_dt   = datetime.today()
     start_dt = end_dt - timedelta(days=months * 30)
@@ -491,12 +499,16 @@ n_signals  = int(df["Buy_Signal"].sum())
 is_bullish = latest > sma20_val
 trend_badge = '<span class="badge badge-bull">Bullish Bias</span>' if is_bullish else '<span class="badge badge-bear">Bearish Bias</span>'
 
-# Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📈  Live Terminal", "🔰  Beginner's Guide", "🧠  AI Insights", "🔍 Stock Deep Dive"])
+# TABS RESTRUCTURED
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📈 Market Overview", 
+    "🔍 Stock Deep-Dive & Search", 
+    "🤖 Gemini AI Market Assistant", 
+    "🔰 Beginner's Guide & Glossary"
+])
 
-# ── TAB 1: LIVE TERMINAL ──
+# ── TAB 1: MARKET OVERVIEW ──
 with tab1:
-    # Summary Card
     name = asset_label.split()[-1]
     trend_text = "above its 20-day average (uptrend)" if latest > sma20_val else "below its 20-day average (downtrend)"
     sent_text = "positive" if avg_sent > 0.05 else ("negative" if avg_sent < -0.05 else "neutral")
@@ -504,31 +516,21 @@ with tab1:
     
     st.markdown(f'<div class="summary-card">{trend_badge} &nbsp; {summary}</div>', unsafe_allow_html=True)
 
-    # Responsive Metrics
     c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        st.metric("Last Price", f"{latest:,.2f}", f"{delta_abs:+.2f} ({delta_pct:+.2f}%)", help="Current closing price.")
-    with c2:
-        st.metric("SMA-20", f"{sma20_val:,.2f}", "Above" if latest > sma20_val else "Below", help="20-day Simple Moving Average.")
-    with c3:
-        st.metric("RSI (14)", f"{rsi_val:.1f}", "Overbought" if rsi_val > 70 else ("Oversold" if rsi_val < 30 else "Neutral"), help="Relative Strength Index.")
-    with c4:
-        st.metric("Live Sentiment", f"{avg_sent:+.3f}", "Positive" if avg_sent > 0.05 else ("Negative" if avg_sent < -0.05 else "Neutral"), help="Avg VADER score of current news (-1 to +1).")
-    with c5:
-        st.metric("Buy Signals", str(n_signals), f"{100 * n_signals / max(len(df), 1):.1f}% of days", help="Total signals in period.")
+    with c1: st.metric("Last Price", f"{latest:,.2f}", f"{delta_abs:+.2f} ({delta_pct:+.2f}%)")
+    with c2: st.metric("SMA-20", f"{sma20_val:,.2f}", "Above" if latest > sma20_val else "Below")
+    with c3: st.metric("RSI (14)", f"{rsi_val:.1f}", "Overbought" if rsi_val > 70 else ("Oversold" if rsi_val < 30 else "Neutral"))
+    with c4: st.metric("Live Sentiment", f"{avg_sent:+.3f}", "Positive" if avg_sent > 0.05 else ("Negative" if avg_sent < -0.05 else "Neutral"))
+    with c5: st.metric("Buy Signals", str(n_signals), f"{100 * n_signals / max(len(df), 1):.1f}% of days")
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    # Chart
     fig = build_chart(df, sent_thresh, show_sentiment=True)
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-    # News Section
     st.markdown("### 📰 Live News & Sentiment")
     if not news_items:
         st.info("No news headlines found for this asset today.")
     else:
-        # Use responsive columns for news cards
         col1, col2 = st.columns(2)
         for i, item in enumerate(news_items):
             col = col1 if i % 2 == 0 else col2
@@ -543,79 +545,11 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
-# ── TAB 2: BEGINNER'S GUIDE ──
+
+# ── TAB 2: STOCK DEEP-DIVE & SEARCH ──
 with tab2:
-    st.markdown("### 🔰 Beginner's Guide")
-    st.markdown("New to trading? Here is how to read the metrics on the Live Terminal.")
-    
-    with st.expander("📈 SMA (Simple Moving Average)", expanded=True):
-        st.markdown("A moving average smooths out daily price changes to show the underlying trend. If the price is above the **SMA-20** (20-day average), the short-term trend is upward. If it's below, the trend is downward.")
-    
-    with st.expander("⚡ RSI (Relative Strength Index)", expanded=True):
-        st.markdown("RSI measures how fast a stock is moving on a scale of 0 to 100. Over 70 means the stock rose too fast and might be **overbought** (due for a drop). Under 30 means it dropped too fast and might be **oversold** (due for a bounce).")
-    
-    with st.expander("🗞️ News Sentiment Score", expanded=True):
-        st.markdown("We use an AI (VADER) to read current news headlines and score them from -1.0 (very negative) to +1.0 (very positive). A score above 0.05 is generally positive.")
-    
-    with st.expander("🟢 Buy Signal", expanded=True):
-        st.markdown("A Buy Signal appears when two things happen at the same time: the stock is in an uptrend (Price > SMA-20) **AND** the news is positive (Sentiment > Threshold). Requiring both reduces false alarms.")
-
-# ── TAB 3: AI INSIGHTS ──
-with tab3:
-    st.markdown("### 🧠 Ask Gemini")
-    st.markdown("Ask natural language questions about the current state of the market, and get insights powered by Google's Gemini AI grounded in real-time technical and sentiment data.")
-    
-    if not gemini_api_key:
-        st.warning("⚠️ Please enter your **Gemini API Key** in the sidebar to unlock AI Insights.")
-    else:
-        suggestion = st.selectbox(
-            "Quick queries:",
-            ["(Type your own question below)", "Summarize the current technicals.", "Are there any alarming news headlines?", "Explain the RSI and SMA in simple terms for this asset."]
-        )
-        
-        user_q = st.text_area("Ask a question about this asset:", value="" if suggestion.startswith("(") else suggestion, height=100)
-        
-        if st.button("Generate Insight", type="primary"):
-            if not user_q:
-                st.error("Please enter a question.")
-            else:
-                with st.spinner("Gemini is analyzing the data..."):
-                    try:
-                        genai.configure(api_key=gemini_api_key)
-                        model = genai.GenerativeModel('gemini-1.5-flash')
-                        
-                        headlines_text = "\n".join([f"- {item['title']} (Sentiment Score: {item['score']})" for item in news_items[:5]])
-                        context_prompt = f"""
-You are an expert quantitative financial analyst AI assistant embedded in a dashboard called "Market Sentinel". 
-Your job is to answer user questions about the specific asset they are currently viewing. Provide concise, professional, and clear answers. Do NOT provide financial advice.
-
-Here is the LIVE DATA CONTEXT for the selected asset:
-- Asset Name: {asset_label}
-- Ticker: {ticker}
-- Current Price: {latest:,.2f}
-- 20-Day Simple Moving Average (SMA-20): {sma20_val:,.2f}
-- Current Trend: {"Bullish (Price > SMA-20)" if is_bullish else "Bearish (Price < SMA-20)"}
-- RSI (14-day): {rsi_val:.1f} (Over 70 is overbought, under 30 is oversold)
-- Average News Sentiment Score: {avg_sent:+.3f} (Scale: -1.0 to +1.0)
-- Number of algorithmic Buy Signals in the past {months} months: {n_signals}
-
-Recent News Headlines Context:
-{headlines_text}
-
-User Question: {user_q}
-"""
-                        response = model.generate_content(context_prompt)
-                        st.markdown("---")
-                        st.markdown("#### ✨ Gemini's Insight")
-                        st.markdown(response.text)
-                    except Exception as e:
-                        st.error(f"Error calling Gemini API: {e}. Please check your API key.")
-
-
-# ── TAB 4: STOCK DEEP DIVE & EXPERT SEARCH ──
-with tab4:
-    st.markdown("### 🔍 Stock Deep Dive & Expert Recommendation")
-    st.markdown("Search for any stock ticker to get a deep technical analysis and an AI-powered Buy/Sell/Wait recommendation.")
+    st.markdown("### 🔍 Stock Deep-Dive & Search")
+    st.markdown("Search for any stock ticker to get a deep technical analysis, fundamental metadata, and an automated trend signal.")
     
     custom_ticker = st.text_input("Enter Stock Ticker (e.g., RELIANCE.NS, AAPL, TSLA, INFY.NS):", placeholder="e.g. AAPL")
     
@@ -623,11 +557,11 @@ with tab4:
         if not custom_ticker:
             st.error("Please enter a stock ticker.")
         else:
-            with st.spinner(f"Fetching data for {custom_ticker}..."):
-                # Fetch 6 months of data for deep dive
+            with st.spinner(f"Fetching data and fundamentals for {custom_ticker}..."):
                 end_dt_d   = datetime.today()
                 start_dt_d = end_dt_d - timedelta(days=180)
-                df_deep = fetch_price_data(custom_ticker, start_dt_d.strftime("%Y-%m-%d"), end_dt_d.strftime("%Y-%m-%d"))
+                df_deep    = fetch_price_data(custom_ticker, start_dt_d.strftime("%Y-%m-%d"), end_dt_d.strftime("%Y-%m-%d"))
+                info       = fetch_stock_info(custom_ticker)
                 
             if df_deep.empty:
                 st.error(f"⚠️ Could not fetch data for **{custom_ticker}**. Please check the ticker symbol (e.g., Indian stocks usually end in `.NS` or `.BO`).")
@@ -642,71 +576,160 @@ with tab4:
                 sma50_val_d  = float(df_deep["SMA_50"].squeeze().dropna().iloc[-1])
                 rsi_val_d    = float(df_deep["RSI"].squeeze().dropna().iloc[-1])
                 
-                # Metrics
-                st.markdown(f"#### 📊 Technicals for {custom_ticker.upper()}")
+                # Fetch info
+                mkt_cap  = info.get('marketCap', 'N/A')
+                if isinstance(mkt_cap, (int, float)):
+                    mkt_cap = f"${mkt_cap/1e9:,.2f}B" if not custom_ticker.endswith('.NS') else f"₹{mkt_cap/1e7:,.2f}Cr"
+                    
+                pe_ratio = info.get('trailingPE', 'N/A')
+                if isinstance(pe_ratio, (int, float)): pe_ratio = f"{pe_ratio:.2f}"
+                
+                high_52  = info.get('fiftyTwoWeekHigh', 'N/A')
+                low_52   = info.get('fiftyTwoWeekLow', 'N/A')
+                volume   = info.get('volume', 'N/A')
+                if isinstance(volume, (int, float)): volume = f"{volume:,.0f}"
+                
+                # Metadata Cards
+                st.markdown(f"#### 📊 Fundamental & Technical Metadata for {custom_ticker.upper()}")
                 c1, c2, c3, c4 = st.columns(4)
                 with c1:
-                    st.metric("Last Price", f"{latest_d:,.2f}", f"{delta_abs_d:+.2f} ({delta_pct_d:+.2f}%)")
+                    st.metric("Current Price", f"{latest_d:,.2f}", f"{delta_abs_d:+.2f} ({delta_pct_d:+.2f}%)")
+                    st.metric("Market Cap", mkt_cap)
                 with c2:
-                    st.metric("SMA-20", f"{sma20_val_d:,.2f}", "Above" if latest_d > sma20_val_d else "Below")
+                    st.metric("P/E Ratio", pe_ratio)
+                    st.metric("Volume", volume)
                 with c3:
-                    st.metric("SMA-50", f"{sma50_val_d:,.2f}", "Above" if latest_d > sma50_val_d else "Below")
+                    st.metric("52-Week High", f"{high_52:,.2f}" if isinstance(high_52, float) else high_52)
+                    st.metric("50-Day SMA", f"{sma50_val_d:,.2f}", "Above" if latest_d > sma50_val_d else "Below")
                 with c4:
+                    st.metric("52-Week Low", f"{low_52:,.2f}" if isinstance(low_52, float) else low_52)
                     st.metric("RSI (14)", f"{rsi_val_d:.1f}", "Overbought" if rsi_val_d > 70 else ("Oversold" if rsi_val_d < 30 else "Neutral"))
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # Chart (No sentiment panel)
+                # Automated Technical Score (Deterministic)
+                bull_points = 0
+                bear_points = 0
+                
+                if latest_d > sma20_val_d: bull_points += 1
+                else: bear_points += 1
+                
+                if latest_d > sma50_val_d: bull_points += 1
+                else: bear_points += 1
+                
+                if 40 <= rsi_val_d <= 65: bull_points += 1
+                elif rsi_val_d > 70: bear_points += 1
+                elif rsi_val_d < 30: bear_points += 1 # Often treated as bearish momentum until recovery
+                else: bear_points += 0 # Neutral range 30-40, 65-70
+                
+                if bull_points >= 2 and bear_points <= 1:
+                    signal_html = '<span class="badge badge-bull" style="font-size:1rem; padding: 8px 16px;">🟢 BULLISH / POTENTIAL BUY ZONE</span>'
+                elif bear_points >= 2 and bull_points <= 1:
+                    signal_html = '<span class="badge badge-bear" style="font-size:1rem; padding: 8px 16px;">🔴 BEARISH / POTENTIAL SELL ZONE</span>'
+                else:
+                    signal_html = '<span class="badge badge-neut" style="font-size:1rem; padding: 8px 16px;">🟡 NEUTRAL / HOLD & WATCH</span>'
+                
+                st.markdown("### 🎯 Signal & Trend Analysis Summary")
+                st.markdown(f"<div style='margin-bottom: 16px;'>{signal_html}</div>", unsafe_allow_html=True)
+                
+                b1 = f"Price is trading **{'above' if latest_d > sma20_val_d else 'below'}** the 20-day SMA, indicating {'positive' if latest_d > sma20_val_d else 'negative'} short-term momentum."
+                b2 = f"Price is trading **{'above' if latest_d > sma50_val_d else 'below'}** the 50-day SMA, indicating {'strong' if latest_d > sma50_val_d else 'weak'} medium-term trend structure."
+                
+                if rsi_val_d > 70: rsi_desc = "Overbought (High risk of pullback)"
+                elif rsi_val_d < 30: rsi_desc = "Oversold (Potential bounce territory, but weak momentum)"
+                else: rsi_desc = "Neutral (Healthy momentum)"
+                b3 = f"RSI is currently **{rsi_val_d:.1f}** ({rsi_desc})."
+                
+                st.markdown(f"- {b1}\n- {b2}\n- {b3}")
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # Chart
+                st.markdown(f"#### Interactive Technical Chart")
                 fig_d = build_chart(df_deep, sent_threshold=0, show_sentiment=False)
                 st.plotly_chart(fig_d, use_container_width=True, config={"displayModeBar": False})
                 
-                st.markdown("---")
-                
-                # Expert Analysis using Gemini
-                st.markdown("### 🤖 Expert Analysis & Recommendation")
-                if not gemini_api_key:
-                    st.warning("⚠️ Please enter your **Gemini API Key** in the sidebar to unlock the AI Expert Analysis and Recommendation.")
-                else:
-                    with st.spinner("Gemini is analyzing technicals and formulating a recommendation..."):
-                        try:
-                            genai.configure(api_key=gemini_api_key)
-                            model = genai.GenerativeModel('gemini-1.5-flash')
-                            
-                            deep_prompt = f"""
-You are a highly experienced stock market technical analyst and expert. 
-Analyze the following live technical data for the stock ticker: {custom_ticker}.
+                # STRICT WARNING/DISCLAIMER 
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.error(
+                    "⚠️ **MANDATORY DISCLAIMER:** The signals, charts, and technical summaries provided on this platform are for educational and analytical purposes only. This is **NOT** financial advice or a stock recommendation. Stock market investments are subject to market risks. Please conduct your own research or consult a SEBI-registered financial advisor before making any investment decisions. Trade/Invest strictly at your own risk."
+                )
 
-- Current Price: {latest_d:,.2f}
-- 20-Day SMA: {sma20_val_d:,.2f} (Short-term trend is {"Bullish" if latest_d > sma20_val_d else "Bearish"})
-- 50-Day SMA: {sma50_val_d:,.2f} (Medium-term trend is {"Bullish" if latest_d > sma50_val_d else "Bearish"})
-- RSI (14-day): {rsi_val_d:.1f} (Remember: >70 is typically overbought, <30 is typically oversold)
 
-Please provide:
-1. **Trend Analysis**: A brief, professional analysis of the latest trend for this stock based on these technicals. 
-2. **Key Levels**: Identify potential support or resistance dynamics based on the SMAs.
-3. **Verdict**: At the very end, give a clear, explicit recommendation: **BUY**, **SELL**, or **WAIT**. Highlight this verdict in bold.
+# ── TAB 3: GEMINI AI MARKET ASSISTANT ──
+with tab3:
+    st.markdown("### 🤖 Gemini AI Market Assistant")
+    st.markdown("Ask natural language questions about the market, specific stocks, or financial concepts.")
+    
+    if not gemini_api_key:
+        st.warning("⚠️ **API Key Missing:** To enable dynamic AI responses, please configure `GEMINI_API_KEY` in your `.streamlit/secrets.toml` or as an environment variable.")
+        st.info("💡 **Sample Interactions (Simulated):** Below are examples of how the AI works when enabled. Click to see simulated responses.")
+        
+        col_q1, col_q2, col_q3 = st.columns(3)
+        with col_q1: q1 = st.button("What is Nifty 50?", use_container_width=True)
+        with col_q2: q2 = st.button("How to read RSI?", use_container_width=True)
+        with col_q3: q3 = st.button("Difference: SMA vs EMA?", use_container_width=True)
+        
+        if q1:
+            st.markdown("#### ✨ Simulated Response")
+            st.markdown("The **Nifty 50** is the benchmark index of the Indian equity market, representing the weighted average of 50 of the largest Indian companies listed on the National Stock Exchange (NSE).\n\n*AI responses are for informational purposes only and should not be taken as investment advice.*")
+        if q2:
+            st.markdown("#### ✨ Simulated Response")
+            st.markdown("The **Relative Strength Index (RSI)** is a momentum oscillator that measures the speed and change of price movements.\n- **Over 70:** Generally considered overbought (potential pullback).\n- **Under 30:** Generally considered oversold (potential bounce).\n\n*AI responses are for informational purposes only and should not be taken as investment advice.*")
+        if q3:
+            st.markdown("#### ✨ Simulated Response")
+            st.markdown("**SMA (Simple Moving Average)** calculates the average price over a specific period equally.\n**EMA (Exponential Moving Average)** gives more weight to recent prices, making it react faster to recent price changes.\n\n*AI responses are for informational purposes only and should not be taken as investment advice.*")
+    
+    else:
+        # AI Chat Interface
+        user_q = st.text_input("Ask a financial question (e.g., 'How does inflation affect tech stocks?'):", placeholder="Type your query here...")
+        
+        if st.button("Ask Gemini", type="primary"):
+            if not user_q:
+                st.error("Please enter a question.")
+            else:
+                with st.spinner("Gemini is analyzing..."):
+                    try:
+                        genai.configure(api_key=gemini_api_key)
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        
+                        prompt = f"""
+                        You are a highly knowledgeable financial market expert and AI assistant.
+                        Answer the following question clearly using Markdown. Use bold key terms and bullet points where appropriate for readability.
+                        
+                        User Question: {user_q}
+                        """
+                        response = model.generate_content(prompt)
+                        
+                        st.markdown("---")
+                        st.markdown("#### ✨ Gemini's Response")
+                        st.markdown(response.text)
+                        
+                        st.markdown("<br><div style='color: #787B86; font-size: 0.8rem; font-style: italic;'>AI responses are for informational purposes only and should not be taken as investment advice.</div>", unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        st.error(f"Error calling Gemini API: {e}. Please verify your API key.")
 
-Format your response cleanly with markdown headers or bullet points. Do not include a generic disclaimer, the system will add a strict one below your output.
-"""
-                            response_d = model.generate_content(deep_prompt)
-                            st.markdown(response_d.text)
-                            
-                        except Exception as e:
-                            st.error(f"Error calling Gemini API: {e}. Please check your API key.")
-                    
-                    # STRICT WARNING/DISCLAIMER 
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.error(
-                        "🚨 **WARNING: DO AT YOUR OWN RISK - SUBJECT TO MARKET RISK.**\n\n"
-                        "This recommendation and analysis is generated entirely by an AI model based on automated technical indicators. "
-                        "**THIS IS NOT FINANCIAL ADVICE.** Do not trade, buy, or sell any stock based solely on this recommendation. "
-                        "You must do your own research and consult a registered financial advisor before making any investment decisions. "
-                        "Any actions taken are entirely at your own risk."
-                    )
+
+# ── TAB 4: BEGINNER'S GUIDE ──
+with tab4:
+    st.markdown("### 🔰 Beginner's Guide & Glossary")
+    st.markdown("New to trading? Here is how to read the metrics on the Live Terminal.")
+    
+    with st.expander("📈 SMA (Simple Moving Average)", expanded=True):
+        st.markdown("A moving average smooths out daily price changes to show the underlying trend. If the price is above the **SMA-20** (20-day average), the short-term trend is upward. If it's below, the trend is downward.")
+    
+    with st.expander("⚡ RSI (Relative Strength Index)", expanded=True):
+        st.markdown("RSI measures how fast a stock is moving on a scale of 0 to 100. Over 70 means the stock rose too fast and might be **overbought** (due for a drop). Under 30 means it dropped too fast and might be **oversold** (due for a bounce).")
+    
+    with st.expander("🗞️ News Sentiment Score", expanded=True):
+        st.markdown("We use an AI (VADER) to read current news headlines and score them from -1.0 (very negative) to +1.0 (very positive). A score above 0.05 is generally positive.")
+    
+    with st.expander("🟢 Buy Signal", expanded=True):
+        st.markdown("A Buy Signal appears when two things happen at the same time: the stock is in an uptrend (Price > SMA-20) **AND** the news is positive (Sentiment > Threshold). Requiring both reduces false alarms.")
 
 
 # ──────────────────────────────────────────────────────────────────
-# FOOTER & TRUST ELEMENTS
+# FOOTER
 # ──────────────────────────────────────────────────────────────────
 st.markdown("---")
 col1, col2 = st.columns(2)
