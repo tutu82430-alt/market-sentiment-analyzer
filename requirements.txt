@@ -1,19 +1,19 @@
-# Web Dashboard
+# ── Web Dashboard ──────────────────────────────────────────
 streamlit>=1.32.0
 plotly>=5.18.0
 
-# Market Data
+# ── Market Data ────────────────────────────────────────────
 yfinance>=0.2.40
 
-# Data & Numerics
+# ── Data & Numerics ────────────────────────────────────────
 pandas>=2.0.0
 numpy>=1.24.0
 
-# NLP Sentiment
+# ── NLP Sentiment ──────────────────────────────────────────
 vaderSentiment>=3.3.2
 
-# Live News RSS
+# ── Live News RSS (Google News feed parser) ────────────────
 feedparser>=6.0.10
 
-# Utilities
+# ── HTTP Utilities ─────────────────────────────────────────
 requests>=2.31.0
